@@ -1,0 +1,156 @@
+---
+title: "Prediction Assignment Writeup"
+author: "BarthLdlg"
+date: "27/04/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+## Data and library loading
+
+We load the libraries we need for the project:
+
+```{r warning=FALSE}
+library(caret)
+library(gbm)
+library(ggplot2)
+library(rpart)
+library(lattice)
+library(e1071)
+library(AppliedPredictiveModeling)
+library(rattle)
+```
+
+We load the train data and the test data into R:
+
+```{r}
+trainData <- read.csv("pml-training.csv")
+testData <- read.csv("pml-testing.csv")
+```
+
+Let's see the dimension of the training and test data:
+
+```{r}
+dim(trainData)
+dim(testData)
+```
+
+A quick summary:
+
+```{r}
+str(trainData)
+```
+
+## Data cleaning and exploring
+
+The goal is to clean the data and to select the best predictors for the outcome **classe**.
+
+
+In the summary we see that many columns have NA or blank values. We want to remove the columns that have more than 90% of NA or blank values.
+
+```{r}
+naSum <- colSums(is.na(trainData) |trainData=="")/dim(trainData)[1]
+colToRemove <- which(naSum>0.9)
+trainData <- trainData[-colToRemove]
+
+naSum <- colSums(is.na(testData) |testData=="")/dim(testData)[1]
+colToRemove <- which(naSum>0.9)
+testData <- testData[-colToRemove]
+```
+
+We also see that the first 7 columns are user information and so not relevant for our analysis. We decide to remove them.
+
+```{r}
+trainData <- trainData[,-c(1:7)]
+testData <- testData[,-c(1:7)]
+```
+
+Now the dimension of our data sets are:
+
+```{r}
+dim(trainData)
+dim(testData)
+```
+
+Then, we remove the columns that are near-zero-variance:
+
+```{r}
+NZV <- nearZeroVar(trainData)
+NZV
+```
+There no column like that. So the data sets are not changed.
+
+Finally, we create a partition 75/25 with the training data set:
+
+```{r}
+dataPartition <- createDataPartition(trainData$classe, p=0.75, list=FALSE)
+train1 <- trainData[dataPartition,]
+test1 <- trainData[-dataPartition,]
+```
+
+
+## Models
+
+We will test three different models in our analysis: classification tree, generalized boosted regression and random forest.
+We will use the cross-validation technique to improve the efficiency of the models. We will use 5 folds.
+
+### Classification tree
+
+```{r}
+trControl <- trainControl(method="cv", number=5)
+model_CT <- train(classe~., data=train1, method="rpart", trControl=trControl)
+fancyRpartPlot(model_CT$finalModel)
+```
+
+```{r}
+trainPred <- predict(model_CT,newdata=test1)
+confMatCT <- confusionMatrix(test1$classe,trainPred)
+confMatCT
+```
+
+We can notice that the accuracy of the model is very low (49%). We propably won't keep this model.
+
+### Generalized Boosted Regression
+
+```{r}
+GBMcontrol <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=train1, method = "gbm", trControl = GBMcontrol, verbose = FALSE)
+```
+
+```{r}
+predictGBM <- predict(modGBM, newdata=test1)
+cmGBM <- confusionMatrix(test1$classe, predictGBM)
+cmGBM
+```
+
+The accuracy of this model is good (96%).
+
+### Random Forest
+
+```{r}
+model_RF <- train(classe~., data=train1, method="rf", trControl=trControl, verbose=FALSE)
+```
+
+```{r}
+trainPred <- predict(model_RF,newdata=test1)
+confMatRF <- confusionMatrix(test1$classe,trainPred)
+confMatRF
+```
+
+With the random forest model we get 99% accuracy. This is the highest we got among the three models selected.
+
+## Conclusion
+
+We will use the random forest model to predict the value of the test set.
+
+```{r}
+results <- predict(model_RF, newdata=testData)
+results
+```
